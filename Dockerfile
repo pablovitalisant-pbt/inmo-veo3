@@ -28,4 +28,4 @@ COPY README.md /app/README.md
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -f http://localhost:$PORT/healthz || exit 1
 
 # Arranque FastAPI con gunicorn+uvicorn worker
-CMD ["gunicorn","-k","uvicorn.workers.UvicornWorker","-w","2","-b","0.0.0.0:8080","src.app.main:app"]
+CMD exec gunicorn -w 1 -k uvicorn.workers.UvicornWorker src.app.api:app
