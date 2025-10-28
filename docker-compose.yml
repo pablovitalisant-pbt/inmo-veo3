@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  inmo-veo3:
+    build: .
+    image: inmo-veo3:latest
+    environment:
+      - VEO_API_BASE_URL=${VEO_API_BASE_URL}
+      - VEO_API_KEY=${VEO_API_KEY}
+      - VEO_TIMEOUT_S=${VEO_TIMEOUT_S:-30}
+      - VEO_MAX_RETRIES=${VEO_MAX_RETRIES:-5}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-*}
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./assets:/app/assets
+      - ./artifacts:/app/artifacts

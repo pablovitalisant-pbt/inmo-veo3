@@ -1,0 +1,5 @@
+{
+  "name": "InmoVeo3 - Real Estate Video Generator",
+  "description": "An application to generate promotional real estate videos using property photos, agent photos, and a scene-by-scene script with the power of Google's Veo model.",
+  "requestFramePermissions": []
+}
