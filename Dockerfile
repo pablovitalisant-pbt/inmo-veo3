@@ -41,3 +41,13 @@ EXPOSE 8080
 
 # Arranque: Gunicorn con el worker ASGI de Uvicorn apuntando a FastAPI
 CMD exec gunicorn -w 1 -k uvicorn.workers.UvicornWorker src.app.api:app --bind 0.0.0.0:${PORT}
+
+# Copia el script de arranque
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# Expone el puerto
+EXPOSE 8080
+
+# Usa el script de arranque blindado
+CMD ["/app/start.sh"]
