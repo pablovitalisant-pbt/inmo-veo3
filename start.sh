@@ -22,4 +22,4 @@ else
 fi
 
 # Arranca la app
-exec gunicorn -w 1 -k uvicorn.workers.UvicornWorker src.app.api:app --bind 0.0.0.0:${PORT:-8080}
+exec gunicorn -w 1 -k uvicorn.workers.UvicornWorker src.app.main:app --bind 0.0.0.0:${PORT:-8080}
