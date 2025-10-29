@@ -1,11 +1,13 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import Header from './components/Header';
 import ImageUploader from './components/ImageUploader';
 import ScriptEditor from './components/ScriptEditor';
 import VideoGenerator from './components/VideoGenerator';
 import { UploadedImage, Scene, GenerationStatus } from './types';
-import { AgentIcon, PropertyIcon } from './components/icons';
-import { generateVideo, getJobStatus } from './services/veoService';
+import { AgentIcon, PropertyIcon, VideoIcon } from './components/icons';
+import { generateRealEstateVideo } from './services/veoService';
+import { useApiKey } from './hooks/useApiKey';
+
 
 const App: React.FC = () => {
   const [propertyImages, setPropertyImages] = useState<UploadedImage[]>([]);
@@ -17,43 +19,12 @@ const App: React.FC = () => {
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progressMessage, setProgressMessage] = useState('');
-  const [jobSlug, setJobSlug] = useState<string | null>(null);
+  
+  const { hasApiKey, isChecking: isCheckingApiKey, selectApiKey, resetApiKeyStatus } = useApiKey();
 
   const isReadyToGenerate = useMemo(() => {
     return propertyImages.length > 0 && scenes.length > 0 && scenes.every(s => s.description.trim() !== '');
   }, [propertyImages, scenes]);
-
-  // Polling effect for job status
-  useEffect(() => {
-    if (jobSlug && generationStatus === GenerationStatus.GENERATING) {
-      const intervalId = setInterval(async () => {
-        try {
-          const statusData = await getJobStatus(jobSlug);
-          setProgressMessage(statusData.message);
-
-          if (statusData.status === 'SUCCESS') {
-            setGeneratedVideoUrl(statusData.video_url);
-            setGenerationStatus(GenerationStatus.SUCCESS);
-            setJobSlug(null); // Stop polling
-            clearInterval(intervalId);
-          } else if (statusData.status === 'ERROR') {
-            setError(statusData.error || 'An unknown error occurred on the backend.');
-            setGenerationStatus(GenerationStatus.ERROR);
-            setJobSlug(null); // Stop polling
-            clearInterval(intervalId);
-          }
-        } catch (e: any) {
-          setError(`Failed to get job status: ${e.message}`);
-          setGenerationStatus(GenerationStatus.ERROR);
-          setJobSlug(null); // Stop polling
-          clearInterval(intervalId);
-        }
-      }, 5000); // Poll every 5 seconds
-
-      return () => clearInterval(intervalId);
-    }
-  }, [jobSlug, generationStatus]);
-
 
   const handleGenerate = useCallback(async () => {
     setError(null);
@@ -64,25 +35,38 @@ const App: React.FC = () => {
       setGenerationStatus(GenerationStatus.ERROR);
       return;
     }
+
+    if (!hasApiKey) {
+        setError("Please select an API key before generating a video.");
+        setGenerationStatus(GenerationStatus.ERROR);
+        return;
+    }
     
     setGenerationStatus(GenerationStatus.GENERATING);
-    setProgressMessage("Uploading assets to the server...");
+    setProgressMessage("Initializing video generation...");
 
     try {
-      const response = await generateVideo({
+      const videoUrl = await generateRealEstateVideo({
         propertyImages,
         agentImage: agentImage[0] || null,
         scenes,
+        onProgress: setProgressMessage,
       });
-      setJobSlug(response.slug);
-      setProgressMessage("Video generation started. This may take a few minutes...");
+
+      setGeneratedVideoUrl(videoUrl);
+      setGenerationStatus(GenerationStatus.SUCCESS);
+      setProgressMessage("Video successfully generated!");
+
     } catch (e: any) {
       console.error("Video generation failed:", e);
       let errorMessage = e.message || "An unknown error occurred.";
+       if (errorMessage.includes("API key may be invalid")) {
+        resetApiKeyStatus();
+      }
       setError(errorMessage);
       setGenerationStatus(GenerationStatus.ERROR);
     }
-  }, [isReadyToGenerate, propertyImages, agentImage, scenes]);
+  }, [isReadyToGenerate, hasApiKey, propertyImages, agentImage, scenes, resetApiKeyStatus]);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-900">
@@ -111,14 +95,38 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="lg:col-span-1 min-h-[400px]">
-            <VideoGenerator 
-              status={generationStatus}
-              videoUrl={generatedVideoUrl}
-              error={error}
-              onGenerate={handleGenerate}
-              isReady={isReadyToGenerate} // Simplified readiness check
-              progressMessage={progressMessage}
-            />
+            {isCheckingApiKey ? (
+              <div className="bg-gray-800/50 rounded-lg p-6 h-full flex flex-col justify-center items-center">
+                  <p className="text-gray-300 animate-pulse">Checking API key...</p>
+              </div>
+            ) : !hasApiKey ? (
+              <div className="bg-gray-800/50 rounded-lg p-6 h-full flex flex-col justify-center items-center text-center">
+                  <VideoIcon className="w-12 h-12 text-brand-primary mb-4" />
+                  <h3 className="text-lg font-semibold text-white mb-2">API Key Required</h3>
+                  <p className="text-gray-400 mb-6 text-sm max-w-sm">
+                      To generate videos with Veo, please select a Google AI Studio API key.
+                      Ensure your project is configured for billing to use this feature.
+                  </p>
+                  <button
+                      onClick={selectApiKey}
+                      className="w-full max-w-xs bg-brand-primary hover:bg-brand-primary/90 text-white font-bold py-3 px-4 rounded-lg transition-transform duration-200 transform active:scale-95"
+                  >
+                      Select API Key
+                  </button>
+                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-brand-secondary mt-4 block">
+                      Learn more about billing
+                  </a>
+              </div>
+            ) : (
+              <VideoGenerator 
+                status={generationStatus}
+                videoUrl={generatedVideoUrl}
+                error={error}
+                onGenerate={handleGenerate}
+                isReady={isReadyToGenerate}
+                progressMessage={progressMessage}
+              />
+            )}
           </div>
         </div>
       </main>
