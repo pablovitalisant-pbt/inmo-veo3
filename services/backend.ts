@@ -7,7 +7,7 @@
 export const API_BASE =
   (import.meta as any)?.env?.VITE_API_BASE ||
   (typeof process !== 'undefined' ? process.env.VITE_API_BASE : undefined) ||
-  'https://inmo-veo3-859994227667.us-central1.run.app';
+  'https://inmo-veo3-y25yqmaa3a-uc.a.run.app';
 
 function url(path: string) {
   return `${API_BASE.replace(/\/+$/,'')}${path.startsWith('/') ? '' : '/'}${path}`;
