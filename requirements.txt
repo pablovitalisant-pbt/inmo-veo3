@@ -9,3 +9,4 @@ colorthief==0.2.1
 prometheus-fastapi-instrumentator==6.1.0
 tqdm==4.66.5
 python-multipart==0.0.9
+google-cloud-storage>=2.18.0
