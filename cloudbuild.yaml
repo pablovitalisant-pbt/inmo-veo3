@@ -13,6 +13,7 @@ substitutions:
 # Nombre de la imagen: Artifact Registry (cloud-run-source-deploy/<servicio>/<servicio>:<sha>)
 options:
   substitutionOption: ALLOW_LOOSE
+  logging: CLOUD_LOGGING_ONLY
 
 steps:
   - id: "Docker build"
