@@ -19,47 +19,41 @@ app.add_middleware(
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
-
-# === Funciones auxiliares ===
+# === Utilidades ===
 def get_bucket():
     return storage_client.bucket(ARTIFACTS_BUCKET)
-
 
 def random_slug():
     ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"{ts}-{rand}"
 
-
-def write_text(blob_path: str, text: str, content_type: str = "text/plain"):
-    bucket = get_bucket()
-    blob = bucket.blob(blob_path)
+def write_text(path: str, text: str, content_type: str = "text/plain"):
+    blob = get_bucket().blob(path)
     blob.upload_from_string(text, content_type=content_type)
 
-
-def read_text(blob_path: str) -> str:
-    bucket = get_bucket()
-    blob = bucket.blob(blob_path)
+def read_text(path: str) -> str:
+    blob = get_bucket().blob(path)
     if not blob.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {blob_path}")
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
     return blob.download_as_text()
 
-
 def list_slugs():
+    """Lista los prefijos (slugs) del bucket de primer nivel."""
     bucket = get_bucket()
     slugs = set()
-    for blob in bucket.list_blobs(delimiter="/"):
+    for blob in bucket.list_blobs():
         prefix = blob.name.split("/")[0]
-        if prefix:
+        if prefix and not prefix.endswith(".csv") and not prefix.endswith(".json"):
             slugs.add(prefix)
+        elif "/" in blob.name:
+            slugs.add(blob.name.split("/")[0])
     return sorted(slugs)
-
 
 # === Endpoints ===
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
 
 @app.post("/run")
 async def run(file: UploadFile = File(None), notes: str = Form(None)):
@@ -72,10 +66,8 @@ async def run(file: UploadFile = File(None), notes: str = Form(None)):
         "bucket": ARTIFACTS_BUCKET,
     }
 
-    # Subir manifest.json
     write_text(prefix + "manifest.json", json.dumps(manifest), "application/json")
 
-    # CSV ficticio
     csv_buf = io.StringIO()
     writer = csv.writer(csv_buf)
     writer.writerow(["id", "value"])
@@ -83,19 +75,16 @@ async def run(file: UploadFile = File(None), notes: str = Form(None)):
     writer.writerow(["2", "200"])
     write_text(prefix + "results.csv", csv_buf.getvalue(), "text/csv")
 
-    # Si hay archivo subido
     if file:
         content = await file.read()
         write_text(prefix + file.filename, content.decode("utf-8", "ignore"), file.content_type)
 
     return {"slug": slug, "bucket": ARTIFACTS_BUCKET}
 
-
 @app.get("/artifacts")
 def get_artifacts():
     slugs = list_slugs()
     return {"slugs": slugs, "count": len(slugs)}
-
 
 @app.get("/artifacts/{slug}")
 def get_artifact(slug: str):
