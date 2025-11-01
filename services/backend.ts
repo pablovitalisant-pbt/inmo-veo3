@@ -1,49 +1,41 @@
-/**
- * Minimal Backend Client for inmo-veo3
- * Usage:
- *   import { health, runUrlencoded, runMultipart } from '@/services/backend';
- */
-
 export const API_BASE =
-  (import.meta as any)?.env?.VITE_API_BASE ||
-  (typeof process !== 'undefined' ? process.env.VITE_API_BASE : undefined) ||
+  (import.meta as any)?.env?.VITE_API_BASE ??
+  (typeof process !== 'undefined' ? (process as any).env?.VITE_API_BASE : undefined) ??
   'https://inmo-veo3-y25yqmaa3a-uc.a.run.app';
 
-function url(path: string) {
-  return `${API_BASE.replace(/\/+$/,'')}${path.startsWith('/') ? '' : '/'}${path}`;
-}
+const toUrl = (path: string) => {
+  const base = API_BASE.replace(/\/+$/, '');
+  const p = path.startsWith('/') ? path : '/' + path;
+  return `${base}${p}`;
+};
 
 export async function health() {
-  const r = await fetch(url('/health'));
-  if (!r.ok) throw new Error(`Health failed: ${r.status}`);
-  return r.json();
+  const res = await fetch(toUrl('/health'));
+  return res.json();
 }
 
-export async function runUrlencoded(slug: string, mode: 'urlencoded'|'multipart'='urlencoded') {
-  const body = new URLSearchParams({ slug, mode });
-  const r = await fetch(url('/run'), {
+export async function runUrlencoded(notes?: string) {
+  const params = new URLSearchParams();
+  if (notes) params.set('notes', notes);
+  const res = await fetch(toUrl('/run'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
   });
-  if (!r.ok) throw new Error(`runUrlencoded failed: ${r.status}`);
-  return r.json();
+  if (!res.ok) throw new Error(`runUrlencoded failed: ${res.status}`);
+  return res.json();
 }
 
-export async function runMultipart(slug: string, file?: File) {
-  const fd = new FormData();
-  fd.append('slug', slug);
-  fd.append('mode', 'multipart');
-  if (file) fd.append('file', file, file.name);
-  const r = await fetch(url('/run'), {
-    method: 'POST',
-    body: fd
-  });
-  if (!r.ok) throw new Error(`runMultipart failed: ${r.status}`);
-  return r.json();
+/** Envia job con payload JSON (se guarda en manifest.notes del backend) */
+export async function submitJob(payload: unknown) {
+  const notes = JSON.stringify(payload);
+  return runUrlencoded(notes);
 }
-export async function getArtifacts(slug: string) {
-  const r = await fetch(url(`/artifacts/${encodeURIComponent(slug)}`));
-  if (!r.ok) throw new Error(`getArtifacts failed: ${r.status}`);
-  return r.json();
+
+export async function getArtifacts(slug?: string) {
+  const url = slug ? toUrl(`/artifacts/${encodeURIComponent(slug)}`) : toUrl('/artifacts');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`getArtifacts failed: ${res.status}`);
+  return res.json();
 }
+
