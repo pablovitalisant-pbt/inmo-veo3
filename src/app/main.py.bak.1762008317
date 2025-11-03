@@ -168,31 +168,3 @@ def get_artifact(slug: str):
     except HTTPException:
         raise HTTPException(status_code=404, detail=f"Artifact {slug} not found")
     return {"slug": slug, "manifest": json.loads(manifest_json), "results_csv": results_csv}
-
-# === Firma temporal de GCS (para previsualizar el video en la UI) ===
-from datetime import timedelta
-
-def blob_exists(path: str) -> bool:
-    return get_bucket().blob(path).exists()
-
-
-@app.get("/artifacts/{slug}/result_url")
-def get_result_signed_url(slug: str, minutes: int = 60):
-    """
-    Devuelve una URL firmada (V4) para reproducir result.mp4 en la UI.
-    Requiere que la cuenta de servicio del servicio Cloud Run tenga:
-      - roles/storage.objectViewer en el bucket
-      - roles/iam.serviceAccountTokenCreator sobre sí misma (self-binding)
-    """
-    path = f"{slug}/result.mp4"
-    blob = get_bucket().blob(path)
-    if not blob.exists():
-        raise HTTPException(status_code=404, detail="result.mp4 not found")
-
-    url = blob.generate_signed_url(
-        version="v4",
-        expiration=timedelta(minutes=minutes),
-        method="GET",
-    )
-    return JSONResponse(content={"url": url})
-

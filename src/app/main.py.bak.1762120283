@@ -175,24 +175,62 @@ from datetime import timedelta
 def blob_exists(path: str) -> bool:
     return get_bucket().blob(path).exists()
 
+@app.get("/artifacts/{slug}/result_url")
 
 @app.get("/artifacts/{slug}/result_url")
 def get_result_signed_url(slug: str, minutes: int = 60):
+    """Devuelve una URL firmada para reproducir result.mp4 en la UI."""
+    from google.auth.transport import requests
+    from google.auth import default as google_auth_default
+    import google.auth.iam
+    from datetime import timedelta
+
+    path = f"{slug}/result.mp4"
+    blob = get_bucket().blob(path)
+    if not blob.exists():
+        raise HTTPException(status_code=404, detail="result.mp4 not found")
+
+    # Usa la cuenta de servicio del servicio de Cloud Run como signer
+    credentials, project_id = google_auth_default()
+    service_email = os.getenv(
+        "SERVICE_ACCOUNT_EMAIL", getattr(credentials, "service_account_email", None)
+    )
+
+    if not service_email:
+        raise HTTPException(status_code=500, detail="SERVICE_ACCOUNT_EMAIL no configurado")
+
+    signer = google.auth.iam.Signer(
+        request=requests.Request(),
+        credentials=credentials,
+        service_account_email=service_email,
+    )
+
+    url = blob.generate_signed_url(
+        expiration=timedelta(minutes=minutes),
+        method="GET",
+        credentials=signer,
+    )
+    return {"url": url}
+from fastapi.responses import StreamingResponse
+
+@app.get("/artifacts/{slug}/result_stream")
+def get_result_stream(slug: str):
     """
-    Devuelve una URL firmada (V4) para reproducir result.mp4 en la UI.
-    Requiere que la cuenta de servicio del servicio Cloud Run tenga:
-      - roles/storage.objectViewer en el bucket
-      - roles/iam.serviceAccountTokenCreator sobre sí misma (self-binding)
+    Devuelve result.mp4 como streaming directamente desde GCS.
+    Evita firma de URL y funciona con las credenciales actuales.
     """
     path = f"{slug}/result.mp4"
     blob = get_bucket().blob(path)
     if not blob.exists():
         raise HTTPException(status_code=404, detail="result.mp4 not found")
 
-    url = blob.generate_signed_url(
-        version="v4",
-        expiration=timedelta(minutes=minutes),
-        method="GET",
-    )
-    return JSONResponse(content={"url": url})
+    def iter_chunks():
+        # lee en chunks de 1 MiB para no cargar todo en memoria
+        with blob.open("rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
 
+    return StreamingResponse(iter_chunks(), media_type="video/mp4")

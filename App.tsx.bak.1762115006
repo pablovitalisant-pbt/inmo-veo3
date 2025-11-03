@@ -1,0 +1,250 @@
+import React, { useMemo, useState } from "react";
+
+type UploadedImage = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  label: string;
+  kind: "property" | "agent";
+};
+type Scene = { id: string; description: string; imageIds: string[] };
+
+const BACKEND = (import.meta as any).env?.VITE_API_BASE || "https://inmo-veo3-y25yqmaa3a-uc.a.run.app";
+const BUCKET  = "inmo-veo3-artifacts-859994227667";
+const PROJECT = "gen-lang-client-0047902430";
+
+async function submitJob(payload: any) {
+  const body = new URLSearchParams();
+  body.set("notes", JSON.stringify(payload));
+  const r = await fetch(`${BACKEND}/run`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  if (!r.ok) throw new Error(`POST /run ${r.status}`);
+  return r.json();
+}
+async function getArtifacts(slug: string) {
+  const r = await fetch(`${BACKEND}/artifacts/${slug}`);
+  if (!r.ok) throw new Error(`GET /artifacts/${slug} ${r.status}`);
+  return r.json();
+}
+
+export default function App() {
+  const [propertyImages, setPropertyImages] = useState<UploadedImage[]>([]);
+  const [agentImages, setAgentImages] = useState<UploadedImage[]>([]);
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [slug, setSlug] = useState<string | null>(null);
+  const [videoReady, setVideoReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const allImages = useMemo(() => [...propertyImages, ...agentImages], [propertyImages, agentImages]);
+
+  // --- Upload handlers
+  const onPick =
+    (setter: React.Dispatch<React.SetStateAction<UploadedImage[]>>, kind: "property" | "agent") =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      const imgs: UploadedImage[] = files.map((f) => ({
+        id: `${kind}-${f.name}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        file: f,
+        previewUrl: URL.createObjectURL(f),
+        label: f.name,
+        kind,
+      }));
+      setter((prev) => [...prev, ...imgs]);
+      e.currentTarget.value = "";
+    };
+
+  // --- Scenes
+  const addScene = () =>
+    setScenes((s) => [...s, { id: `scene-${Date.now()}`, description: "", imageIds: [] }]);
+  const updateScene = (id: string, patch: Partial<Scene>) =>
+    setScenes((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const toggleRef = (sc: Scene, imageId: string) => {
+    const on = sc.imageIds.includes(imageId);
+    let next = sc.imageIds.slice();
+    if (on) next = next.filter((i) => i !== imageId);
+    else if (next.length < 3) next.push(imageId);
+    updateScene(sc.id, { imageIds: next });
+  };
+
+  // --- Submit + polling
+  const onProcess = async () => {
+    setBusy(true);
+    setError(null);
+    setSlug(null);
+    setVideoReady(false);
+    try {
+      const payload = {
+        kind: "veo-job",
+        requested_at: new Date().toISOString(),
+        scenes: scenes.map((s) => ({ id: s.id, description: s.description, imageIds: s.imageIds })),
+        propertyImages: propertyImages.map((x) => ({ id: x.id, name: x.label, kind: x.kind })),
+        agentImages: agentImages.map((x) => ({ id: x.id, name: x.label, kind: x.kind })),
+      };
+      const res = await submitJob(payload);
+      setSlug(res.slug);
+
+      // Poll cada 2s hasta ver result.mp4 (máx 2 min)
+      const t0 = Date.now();
+      while (Date.now() - t0 < 120000) {
+        const a = await getArtifacts(res.slug);
+        if (a?.manifest?.outputs?.video === "result.mp4") {
+          setVideoReady(true);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const gcsUrl =
+    slug && videoReady
+      ? `https://console.cloud.google.com/storage/browser/_details/${BUCKET}/${slug}/result.mp4?project=${PROJECT}`
+      : null;
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-gray-100">
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <header className="bg-gray-900/80 border-b border-gray-700/50 p-4 rounded-xl mb-4 flex items-center justify-between">
+          <div className="text-sm text-gray-300">{videoReady ? "Video listo" : "Listo para procesar"}</div>
+          <div className="flex items-center gap-3">
+            {gcsUrl && (
+              <a
+                href={gcsUrl}
+                target="_blank"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg"
+              >
+<Button
+  onClick={() => window.open(`${import.meta.env.VITE_API_BASE}/artifacts/${slug}/result_stream`, "_blank")}
+  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-xl shadow-md transition"
+>
+  🎬 Ver video renderizado
+</Button>
+              onClick={onProcess}
+              disabled={busy}
+              className="bg-brand-primary hover:bg-indigo-600 disabled:opacity-50 text-white rounded-lg px-4 py-2"
+            >
+              {busy ? "Procesando..." : "Procesar"}
+            </button>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Property Images */}
+          <section className="col-span-1 bg-gray-800 rounded-2xl p-4 shadow">
+            <h2 className="text-lg font-semibold mb-2">Property Images</h2>
+            <label className="block">
+              <input type="file" accept="image/*" multiple className="hidden" onChange={onPick(setPropertyImages, "property")} />
+              <div className="border-2 border-dashed border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-gray-400 transition">
+                <p className="text-sm text-gray-300">Drag & drop or click to upload</p>
+              </div>
+            </label>
+            {propertyImages.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 mt-4">
+                {propertyImages.map((img) => (
+                  <div key={img.id} className="relative">
+                    <img src={img.previewUrl} alt={img.label} className="rounded-lg object-cover w-full h-24" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Scenes */}
+          <section className="col-span-1 lg:col-span-2 bg-gray-800 rounded-2xl p-4 shadow">
+            <h2 className="text-lg font-semibold mb-2">Scene-by-Scene Script</h2>
+            {scenes.length === 0 && (
+              <div className="text-gray-400 text-sm mb-4">No scenes yet. Add one to get started!</div>
+            )}
+            <div className="space-y-4">
+              {scenes.map((sc, idx) => (
+                <div key={sc.id} className="bg-gray-700/40 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-semibold text-sm text-gray-300">Scene {idx + 1}</p>
+                  </div>
+                  <textarea
+                    value={sc.description}
+                    onChange={(e) => updateScene(sc.id, { description: e.target.value })}
+                    placeholder="Describe this scene..."
+                    className="w-full bg-gray-800 rounded-lg p-2 text-sm"
+                    rows={3}
+                  />
+                  <div className="mt-3">
+                    <p className="text-xs text-gray-400 mb-1">Reference images (up to 3):</p>
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                      {allImages.map((img) => {
+                        const selected = sc.imageIds.includes(img.id);
+                        const full = !selected && sc.imageIds.length >= 3;
+                        return (
+                          <button
+                            key={img.id}
+                            type="button"
+                            disabled={full}
+                            onClick={() => toggleRef(sc, img.id)}
+                            className={`relative rounded-lg overflow-hidden h-16 border ${
+                              selected ? "border-brand-primary ring-2 ring-brand-primary" : "border-gray-600"
+                            } ${full ? "opacity-50 cursor-not-allowed" : "hover:opacity-90"}`}
+                            title={img.label}
+                          >
+                            <img src={img.previewUrl} alt={img.label} className="object-cover w-full h-full" />
+                            {selected && (
+                              <span className="absolute top-1 right-1 bg-brand-primary text-white text-[10px] px-1 rounded">
+                                ✓
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4">
+              <button onClick={addScene} className="bg-brand-primary hover:bg-indigo-600 text-white rounded-lg px-4 py-2 w-full">
+                Add Scene
+              </button>
+            </div>
+          </section>
+
+          {/* Agent Images  <- ESTA ES LA TARJETA QUE FALTABA */}
+          <section className="col-span-1 lg:col-span-3 bg-gray-800 rounded-2xl p-4 shadow">
+            <h2 className="text-lg font-semibold mb-2">Agent Images</h2>
+            <label className="block">
+              <input type="file" accept="image/*" multiple className="hidden" onChange={onPick(setAgentImages, "agent")} />
+              <div className="border-2 border-dashed border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-gray-400 transition w-60">
+                <p className="text-sm text-gray-300">Drag & drop or click to upload</p>
+              </div>
+            </label>
+            {agentImages.length > 0 && (
+              <div className="grid grid-cols-6 gap-3 mt-4">
+                {agentImages.map((img) => (
+                  <div key={img.id} className="relative">
+                    <img src={img.previewUrl} alt={img.label} className="rounded-lg object-cover w-24 h-24" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Estado / errores */}
+        <div className="mt-6 space-y-2">
+          {slug && (
+            <code className="block text-xs text-gray-400">
+              slug: <b>{slug}</b>
+            </code>
+          )}
+          {error && <div className="text-red-400 text-sm">ERROR: {error}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}

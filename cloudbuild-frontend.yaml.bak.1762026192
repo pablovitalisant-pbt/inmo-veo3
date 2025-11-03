@@ -8,19 +8,19 @@ steps:
   - '--build-arg'
   - VITE_API_BASE=${_VITE_API_BASE}
   - '-t'
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/inmo-veo3-ui/inmo-veo3-ui:${_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/inmo-veo3-ui/inmo-veo3-ui:${SHORT_SHA}
   - .
 - name: gcr.io/cloud-builders/docker
   args:
   - push
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/inmo-veo3-ui/inmo-veo3-ui:${_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/inmo-veo3-ui/inmo-veo3-ui:${SHORT_SHA}
 - name: gcr.io/google.com/cloudsdktool/cloud-sdk
   entrypoint: gcloud
   args:
   - run
   - deploy
   - inmo-veo3-ui
-  - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/inmo-veo3-ui/inmo-veo3-ui:${_TAG}
+  - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/inmo-veo3-ui/inmo-veo3-ui:${SHORT_SHA}
   - --region=${_REGION}
   - --allow-unauthenticated
   - --platform=managed
@@ -31,4 +31,4 @@ substitutions:
 options:
   substitutionOption: ALLOW_LOOSE
 images:
-- ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/inmo-veo3-ui/inmo-veo3-ui:${_TAG}
+- ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/inmo-veo3-ui/inmo-veo3-ui:${SHORT_SHA}

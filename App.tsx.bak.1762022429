@@ -1,0 +1,178 @@
+import React, { useMemo, useState } from "react";
+import Header from "./components/Header";
+import ScriptEditor from "./components/ScriptEditor";
+import type { Scene, UploadedImage } from "./types";
+import { submitJob, getArtifacts } from "./services/backend";
+
+export default function App() {
+  const [propertyImages, setPropertyImages] = useState<UploadedImage[]>([]);
+  const [agentImages, setAgentImages] = useState<UploadedImage[]>([]);
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [manifest, setManifest] = useState<any | null>(null);
+
+  const availableImages = useMemo(
+    () => [...propertyImages, ...agentImages],
+    [propertyImages, agentImages]
+  );
+
+  const pick =
+    (setter: React.Dispatch<React.SetStateAction<UploadedImage[]>>, kind: "property" | "agent") =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      const imgs: UploadedImage[] = files.map((f) => ({
+        id: `${kind}-${f.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        file: f,
+        previewUrl: URL.createObjectURL(f),
+        label: f.name,
+        kind,
+      }));
+      setter((p) => [...p, ...imgs]);
+      e.currentTarget.value = "";
+    };
+
+  const remove = (setter: React.Dispatch<React.SetStateAction<UploadedImage[]>>) => (id: string) =>
+    setter((prev) => prev.filter((x) => x.id !== id));
+
+  async function process() {
+    setBusy(true);
+    setError(null);
+    setManifest(null);
+    try {
+      const payload = {
+        kind: "veo-job",
+        requested_at: new Date().toISOString(),
+        scenes: scenes.map((s) => ({ id: s.id, description: s.description, imageIds: s.imageIds })),
+        propertyImages: propertyImages.map((p) => ({ id: p.id, name: p.label, kind: p.kind })),
+        agentImages: agentImages.map((a) => ({ id: a.id, name: a.label, kind: a.kind })),
+      };
+
+      const resp = await submitJob(payload);
+      const slug: string = resp?.slug;
+
+      // Poll hasta que haya video listo
+      let last: any = null;
+      for (let i = 0; i < 60; i++) {
+        const art = await getArtifacts(slug);
+        last = art?.manifest;
+        if (last?.outputs?.video === "result.mp4" || last?.status === "completed") break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      setManifest(last);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const videoUrl =
+    manifest?.outputs?.video === "result.mp4" && manifest?.bucket && manifest?.slug
+      ? `https://storage.googleapis.com/${manifest.bucket}/${manifest.slug}/result.mp4`
+      : null;
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-gray-100">
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <Header />
+        <div className="bg-gray-800 rounded-2xl p-4 mb-4 flex items-center justify-between">
+          <div className="text-sm text-gray-300">{busy ? "Procesando…" : "Listo para procesar"}</div>
+          <button
+            onClick={process}
+            disabled={busy}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg px-4 py-2"
+          >
+            {busy ? "Enviando…" : "Procesar"}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <section className="col-span-1 bg-gray-800 rounded-2xl p-4 shadow">
+            <h2 className="text-lg font-semibold mb-2">Property Images</h2>
+            <label className="block cursor-pointer">
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={pick(setPropertyImages, "property")}
+                className="hidden"
+              />
+              <div className="border-2 border-dashed border-gray-600 rounded-xl p-6 text-center hover:border-gray-400 transition">
+                <p className="text-sm text-gray-300">Drag & drop or click to upload</p>
+              </div>
+            </label>
+            {propertyImages.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 mt-4">
+                {propertyImages.map((img) => (
+                  <div key={img.id} className="relative group">
+                    <img src={img.previewUrl} alt={img.label} className="rounded-lg object-cover w-full h-24" />
+                    <button
+                      onClick={() => remove(setPropertyImages)(img.id)}
+                      className="absolute top-1 right-1 bg-gray-900/70 hover:bg-red-600 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="col-span-1 lg:col-span-2">
+            <ScriptEditor scenes={scenes} onScenesChange={setScenes} availableImages={availableImages} />
+          </section>
+
+          <section className="col-span-1 lg:col-span-3 bg-gray-800 rounded-2xl p-4 shadow">
+            <h2 className="text-lg font-semibold mb-2">Agent Images</h2>
+            <label className="block cursor-pointer">
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={pick(setAgentImages, "agent")}
+                className="hidden"
+              />
+              <div className="border-2 border-dashed border-gray-600 rounded-xl p-6 text-center hover:border-gray-400 transition w-60">
+                <p className="text-sm text-gray-300">Drag & drop or click to upload</p>
+              </div>
+            </label>
+            {agentImages.length > 0 && (
+              <div className="grid grid-cols-6 gap-3 mt-4">
+                {agentImages.map((img) => (
+                  <div key={img.id} className="relative group">
+                    <img src={img.previewUrl} alt={img.label} className="rounded-lg object-cover w-24 h-24" />
+                    <button
+                      onClick={() => remove(setAgentImages)(img.id)}
+                      className="absolute top-1 right-1 bg-gray-900/70 hover:bg-red-600 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {manifest && (
+          <div className="mt-6 space-y-2 bg-gray-800 rounded-xl p-3 text-sm">
+            <pre className="text-gray-400 whitespace-pre-wrap">
+              {JSON.stringify(manifest, null, 2)}
+            </pre>
+            {videoUrl && (
+              <a
+                href={videoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-indigo-400 underline"
+              >
+                Ver result.mp4 en Google Cloud Storage
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
